@@ -1,0 +1,109 @@
+<!-- FILE: frontend/signup.html -->
+<!-- Signup Page -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign Up – Notes Manager</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="auth-page">
+
+  <div class="auth-card">
+    <div class="logo">📝 NoteSpace</div>
+    <h1>Create account</h1>
+    <p class="subtitle">Start organizing your notes today</p>
+
+    <!-- Error / success message box -->
+    <div class="alert" id="alertBox"></div>
+
+    <!-- Signup Form -->
+    <div class="form-group">
+      <label for="name">Full Name</label>
+      <input type="text" id="name" placeholder="Your name" />
+    </div>
+
+    <div class="form-group">
+      <label for="email">Email</label>
+      <input type="email" id="email" placeholder="you@example.com" />
+    </div>
+
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" placeholder="Min. 6 characters" />
+    </div>
+
+    <button class="btn btn-primary" onclick="handleSignup()" id="signupBtn">
+      Create Account
+    </button>
+
+    <div class="auth-footer">
+      Already have an account? <a href="index.html">Sign in</a>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+  <script>
+    // If already logged in, go to dashboard
+    if (localStorage.getItem("token")) {
+      window.location.href = "dashboard.html";
+    }
+
+    // Handle signup form submission
+    async function handleSignup() {
+      const name = document.getElementById("name").value.trim();
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+      const btn = document.getElementById("signupBtn");
+      const alertBox = document.getElementById("alertBox");
+
+      hideAlert(alertBox);
+
+      // Validate inputs
+      if (!name || !email || !password) {
+        showAlert(alertBox, "Please fill in all fields.", "error");
+        return;
+      }
+
+      if (password.length < 6) {
+        showAlert(alertBox, "Password must be at least 6 characters.", "error");
+        return;
+      }
+
+      btn.textContent = "Creating account...";
+      btn.disabled = true;
+
+      try {
+        const res = await fetch(`${API_URL}/signup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, email, password }),
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+          // Show success and redirect to login after 2 seconds
+          showAlert(alertBox, "Account created! Redirecting to login...", "success");
+          setTimeout(() => {
+            window.location.href = "index.html";
+          }, 2000);
+        } else {
+          showAlert(alertBox, data.message || "Signup failed.", "error");
+        }
+      } catch (err) {
+        showAlert(alertBox, "Cannot connect to server. Is the backend running?", "error");
+      }
+
+      btn.textContent = "Create Account";
+      btn.disabled = false;
+    }
+
+    // Allow pressing Enter to signup
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") handleSignup();
+    });
+  </script>
+</body>
+</html>

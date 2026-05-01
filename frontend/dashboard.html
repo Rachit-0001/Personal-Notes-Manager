@@ -1,0 +1,276 @@
+<!-- FILE: frontend/dashboard.html -->
+<!-- Dashboard Page - Only accessible after login -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard – Notes Manager</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div class="dashboard-layout">
+
+    <!-- Top Navigation Bar -->
+    <nav class="navbar">
+      <div class="logo">📝 NoteSpace</div>
+      <div class="user-info">
+        <span class="user-name">Hi, <span id="userName">...</span></span>
+        <button class="btn-logout" onclick="logout()">Logout</button>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="main-content">
+
+      <!-- Create Note Section -->
+      <div class="note-form-box">
+        <h3>New Note</h3>
+        <div id="formAlert" class="alert"></div>
+        <input type="text" id="noteTitle" placeholder="Note title..." maxlength="100" />
+        <textarea id="noteContent" placeholder="Write your note here..."></textarea>
+        <div class="form-actions">
+          <button class="btn btn-secondary" onclick="clearForm()">Clear</button>
+          <button class="btn btn-primary" onclick="saveNote()" id="saveBtn">
+            Save Note
+          </button>
+        </div>
+      </div>
+
+      <!-- Notes List Section -->
+      <div class="section-header">
+        <h2>My Notes</h2>
+        <span class="count-badge" id="notesCount">0 notes</span>
+      </div>
+
+      <!-- Notes will be loaded here by JavaScript -->
+      <div class="notes-grid" id="notesGrid">
+        <div class="loading">Loading your notes...</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Edit Note Modal (popup) -->
+  <div class="modal-overlay" id="editModal">
+    <div class="modal">
+      <h3>Edit Note</h3>
+      <!-- Hidden input to store which note we're editing -->
+      <input type="hidden" id="editNoteId" />
+      <input type="text" id="editTitle" placeholder="Note title..." maxlength="100" />
+      <textarea id="editContent" placeholder="Note content..."></textarea>
+      <div class="form-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="updateNote()" id="updateBtn">
+          Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+  <script>
+    // Check if user is logged in - if not, redirect to login
+    const token = localStorage.getItem("token");
+    const user = JSON.parse(localStorage.getItem("user") || "{}");
+
+    if (!token) {
+      window.location.href = "index.html";
+    } else {
+      // Show the user's name in the navbar
+      document.getElementById("userName").textContent = user.name || "User";
+      // Load notes when page opens
+      loadNotes();
+    }
+
+    // ---- LOAD NOTES ----
+    async function loadNotes() {
+      const grid = document.getElementById("notesGrid");
+
+      try {
+        const res = await fetch(`${API_URL}/notes`, {
+          headers: { "Authorization": `Bearer ${token}` },
+        });
+
+        if (res.status === 401) {
+          // Token expired or invalid
+          logout();
+          return;
+        }
+
+        const notes = await res.json();
+
+        // Update the count badge
+        document.getElementById("notesCount").textContent =
+          `${notes.length} ${notes.length === 1 ? "note" : "notes"}`;
+
+        if (notes.length === 0) {
+          grid.innerHTML = `
+            <div class="empty-state">
+              <div class="icon">🗒️</div>
+              <h3>No notes yet</h3>
+              <p>Create your first note using the form above!</p>
+            </div>
+          `;
+          return;
+        }
+
+        // Build the notes HTML
+        grid.innerHTML = notes.map(note => `
+          <div class="note-card" id="note-${note._id}">
+            <div class="note-title">${escapeHtml(note.title)}</div>
+            <div class="note-content">${escapeHtml(note.content)}</div>
+            <div class="note-date">${formatDate(note.createdAt)}</div>
+            <div class="note-actions">
+              <button class="btn btn-edit" onclick="openEditModal('${note._id}', \`${escapeForJs(note.title)}\`, \`${escapeForJs(note.content)}\`)">
+                ✏️ Edit
+              </button>
+              <button class="btn btn-danger" onclick="deleteNote('${note._id}')">
+                🗑️ Delete
+              </button>
+            </div>
+          </div>
+        `).join("");
+
+      } catch (err) {
+        grid.innerHTML = `<div class="empty-state"><p>Could not load notes. Is the backend running?</p></div>`;
+      }
+    }
+
+    // ---- CREATE NOTE ----
+    async function saveNote() {
+      const title = document.getElementById("noteTitle").value.trim();
+      const content = document.getElementById("noteContent").value.trim();
+      const btn = document.getElementById("saveBtn");
+      const alertBox = document.getElementById("formAlert");
+
+      hideAlert(alertBox);
+
+      if (!title || !content) {
+        showAlert(alertBox, "Please enter both title and content.", "error");
+        return;
+      }
+
+      btn.textContent = "Saving...";
+      btn.disabled = true;
+
+      try {
+        const res = await fetch(`${API_URL}/notes`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+          },
+          body: JSON.stringify({ title, content }),
+        });
+
+        const data = await res.json();
+
+        if (res.ok) {
+          clearForm();
+          loadNotes(); // Refresh the notes list
+        } else {
+          showAlert(alertBox, data.message || "Could not save note.", "error");
+        }
+      } catch (err) {
+        showAlert(alertBox, "Server error. Please try again.", "error");
+      }
+
+      btn.textContent = "Save Note";
+      btn.disabled = false;
+    }
+
+    // ---- DELETE NOTE ----
+    async function deleteNote(noteId) {
+      // Simple confirm before deleting
+      if (!confirm("Delete this note? This cannot be undone.")) return;
+
+      try {
+        const res = await fetch(`${API_URL}/notes/${noteId}`, {
+          method: "DELETE",
+          headers: { "Authorization": `Bearer ${token}` },
+        });
+
+        if (res.ok) {
+          loadNotes(); // Refresh list
+        } else {
+          alert("Could not delete note.");
+        }
+      } catch (err) {
+        alert("Server error.");
+      }
+    }
+
+    // ---- OPEN EDIT MODAL ----
+    function openEditModal(id, title, content) {
+      document.getElementById("editNoteId").value = id;
+      document.getElementById("editTitle").value = title;
+      document.getElementById("editContent").value = content;
+      document.getElementById("editModal").classList.add("show");
+    }
+
+    function closeModal() {
+      document.getElementById("editModal").classList.remove("show");
+    }
+
+    // Close modal if clicking outside it
+    document.getElementById("editModal").addEventListener("click", function(e) {
+      if (e.target === this) closeModal();
+    });
+
+    // ---- UPDATE NOTE ----
+    async function updateNote() {
+      const id = document.getElementById("editNoteId").value;
+      const title = document.getElementById("editTitle").value.trim();
+      const content = document.getElementById("editContent").value.trim();
+      const btn = document.getElementById("updateBtn");
+
+      if (!title || !content) {
+        alert("Please fill in both title and content.");
+        return;
+      }
+
+      btn.textContent = "Saving...";
+      btn.disabled = true;
+
+      try {
+        const res = await fetch(`${API_URL}/notes/${id}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${token}`,
+          },
+          body: JSON.stringify({ title, content }),
+        });
+
+        if (res.ok) {
+          closeModal();
+          loadNotes();
+        } else {
+          alert("Could not update note.");
+        }
+      } catch (err) {
+        alert("Server error.");
+      }
+
+      btn.textContent = "Save Changes";
+      btn.disabled = false;
+    }
+
+    // ---- CLEAR FORM ----
+    function clearForm() {
+      document.getElementById("noteTitle").value = "";
+      document.getElementById("noteContent").value = "";
+      hideAlert(document.getElementById("formAlert"));
+    }
+
+    // ---- LOGOUT ----
+    function logout() {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      window.location.href = "index.html";
+    }
+  </script>
+</body>
+</html>
